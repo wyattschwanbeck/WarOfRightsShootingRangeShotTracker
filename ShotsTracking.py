@@ -1,9 +1,7 @@
 """
 The goal of this program is to record shots on War of Rights Shooting range to
-assist with accuracy and consistancy in shots and even record 'shot cams' for matches
-Currently the code is dynamic and is written to capture any resolution
-    in which the game is played as long as it is fullscreen+borderless
-
+assist with accuracy and consistancy in shots.
+Currently the code is dynamic and will capture footage from the game with fullscreen+borderless display settings
 """
 
 import mss
@@ -11,9 +9,6 @@ import win32api
 import time
 import datetime
 import os
-
-
-
 
 from PIL import Image
 from PIL import ImageFont
@@ -33,12 +28,10 @@ class RingBuffer(deque):
 
 	def full_append(self, item):
 		deque.append(self, item)
-		# full, pop the oldest item, left most item
 		self.popleft()
 
 	def append(self, item):
 		deque.append(self, item)
-		# max size reached, append becomes full_append
 		if len(self) == self.size:
 			self.append = self.full_append
 
@@ -46,7 +39,7 @@ class RingBuffer(deque):
 		"""returns a list of size items (newest items)"""
 		return list(self)
 
-	def CreateGif(self, fireSeconds, final_result):
+	def CreateTargetGif(self, fireSeconds, final_result):
 		aim_frames = self.get()
 		final_result=Image.fromarray(final_result.astype('uint8'), 'RGB')
 		final_frames = []
@@ -69,7 +62,25 @@ class RingBuffer(deque):
 			"results/{0}.gif".format(datetime.datetime.now().strftime("%d-%m-%Y %H%M-%S")),
 			format="GIF", append_images=final_frames[1:],
 			save_all=True, loop=0, fps =30)
+	def CreateKillCamGif(self, fireSeconds):
+		aim_frames = self.get()
+		final_frames = []
 
+		font = ImageFont.truetype("font/HeadlinerNo45-59y8.ttf", 12)
+
+
+		for f,frame in enumerate(aim_frames,0):
+            #Convert image from array
+			frame =Image.fromarray(frame.astype('uint8'), 'RGBA')
+			draw = ImageDraw.Draw(frame)
+            #Add in black rectangle to captured shot where text will be added
+			draw.rectangle(((0, 00), (frame.size[0],11)), fill="black")
+			draw.text((0, 2),"Seconds from aiming to firing:{0}".format(fireSeconds),(255,255,255),font=font)
+			final_frames.append(frame)
+		final_frames[0].save(
+			"results/{0}.gif".format(datetime.datetime.now().strftime("%d-%m-%Y %H%M-%S")),
+			format="GIF", append_images=final_frames[1:],
+			save_all=True, loop=0, fps =30)
 
 def Capture_Result(monitorNum):
 	'''Captures the shooting range result'''
@@ -83,17 +94,13 @@ def Capture_Result(monitorNum):
 def Capture_Sights(monitorNum):
 	'''Capture a the last 100 frames since shooting'''
 	with mss.mss() as sct:
-
-		if os.path.exists("results")==False:
-			os.mkdir("results")
-
 		image = np.array(sct.grab(sct.monitors[monitorNum]))
 		image = cv2.cvtColor(image, cv2.COLOR_BGR2RGBA)
-		return adjusted_capture(image,910,470,100,100)
+		return adjusted_capture(image,842,382,225,225)
 
 
 
-def Start_Count_Down_Then_Capture(monitorNum):
+def Start_Count_Down_Then_Capture(monitorNum, killCamOnly=False):
 	ring = RingBuffer(100)
 
 	print("User Aiming")
@@ -121,12 +128,16 @@ def Start_Count_Down_Then_Capture(monitorNum):
 			print("Shot taken, rendering gif")
 			state_left_time = time.time()
 			while time.time() - state_left_time < .25:
+
 				ring.append(Capture_Sights(monitorNum))
 
 			fireSeconds = round(time.time()-start_time,2)
 			final_result = Capture_Result(monitorNum)
+			if killCamOnly==False:
+				ring.CreateTargetGif(fireSeconds, final_result)
+			else:
+				ring.CreateKillCamGif(fireSeconds)
 
-			ring.CreateGif(fireSeconds, final_result)
 			print("Gif rendered, ready to capture next shot")
 			return True
 			break
@@ -138,6 +149,7 @@ import numpy as np
 import cv2
 
 def adjusted_capture(screen, base_pixel_x, base_pixel_y, y_size, x_size):
+        '''Allows for dynamic shot capture on (almost) any resolution'''
         screen_w_adj = (screen.shape[0]/1080)
         screen_h_adj = (screen.shape[1]/1920)
 
@@ -151,12 +163,25 @@ def adjusted_capture(screen, base_pixel_x, base_pixel_y, y_size, x_size):
 									int((x_size*(screen.shape[1]/1920) \
 							     +(base_pixel_x*aspect_adj)*screen_w_adj)), :])
 
+        #screen = cv2.resize(screen,(x_size,y_size))
+
         return screen
 print("Shot Tracker for War of Rights Shooting Range")
+print("Source code: https://github.com/wyattschwanbeck/WarOfRightsShootingRangeShotTracker")
 
-monitorNum = input("Enter Monitor Number:")
-while monitorNum.isalnum()==False:
-	monitorNum = input("Invalid input, Enter Monitor Number:")
+if os.path.exists("results")==False:
+	print("Creating folder within exe directory for results")
+	os.mkdir("results")
+#default for fullscreen+borderless
+monitorNum = 1
+
+
+killCamOnly = input("Enter 1 to capture Target shot results, enter anything else to only render aiming frames which is ideal to capture shots during matches:")
+
+if killCamOnly.strip() == "1":
+	killCamOnly = False
+else:
+	killCamOnly = True
 
 monitorNum = int(monitorNum)
 
@@ -170,14 +195,11 @@ while True:
 
 	if state_right < 0:
 
-		if Start_Count_Down_Then_Capture(monitorNum):
+		if Start_Count_Down_Then_Capture(monitorNum, killCamOnly):
 			shot_taken += 1
 			print("{0} Shot(s) Logged".format(shot_taken))
 
 		else:
 			print("Shot Aborted")
-
-
-
 
 
